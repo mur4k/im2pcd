@@ -1,3 +1,4 @@
+import open3d as o3d
 import glob
 import os
 import sys
@@ -11,6 +12,24 @@ import torch_geometric.nn as gnn
 from torch_geometric.read import read_off
 from PIL import Image
 
+
+def ensure_dir(file_path):
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+def custom_draw_geometry(xyz, path_to_save=None):
+    xyz = xyz.detach().numpy()
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(xyz)
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+    vis.add_geometry(pcd)
+    if path_to_save is not None:
+        vis.capture_screen_image(filename=path_to_save, do_render=True)
+    else:
+        vis.run()
+    vis.destroy_window()
 
 def onedir_nn_distance(p1, p2, norm=True):
     p1_copy = p1.repeat(p2.size(0), 1, 1).transpose(0, 1)
@@ -42,9 +61,7 @@ def losses(pred, target, target_norms, chamfer=True, edge=False, norm=False):
     chamfer_loss = edge_loss = norm_loss = 0.
 
     # Chamfer Loss
-
     if chamfer or norm:
-
         target_pred_nearest = gnn.knn(x=pred.view(-1, 3), 
                                       y=target.view(-1, 3), 
                                       k=1, 
@@ -58,9 +75,8 @@ def losses(pred, target, target_norms, chamfer=True, edge=False, norm=False):
                                       batch_x=target_batch.flatten(), 
                                       batch_y=pred_batch.flatten())
         pred_target_nearest = pred_target_nearest.view(2, pred.size(0), pred.size(1), -1)
-
+        
         if chamfer:
-
             pred_target_dist = torch.norm(pred.view(-1, 3)[pred_target_nearest[0].view(-1)] - 
                                           target.view(-1, 3)[pred_target_nearest[1].view(-1)], dim=-1)
             pred_target_dist = pred_target_dist.view(pred.size(0), pred.size(1))
@@ -74,23 +90,17 @@ def losses(pred, target, target_norms, chamfer=True, edge=False, norm=False):
 
             chamfer_loss = pred_target_dist_mean + target_pred_dist_mean
     
-    if edge or norm: 
-    
+    if edge or norm:     
         pred_k_3 = gnn.knn_graph(x=pred.view(-1, 3), k=3, batch=pred_batch.flatten(), loop=False)
-
+        # Edge Loss    
         if edge:
-
-            # Edge Loss
-
             pred_edge_dist = torch.norm(pred.view(-1, 3)[pred_k_3[0, 0::3]] -
                                         pred.view(-1, 3)[pred_k_3[1, 0::3]], dim=-1)
             pred_edge_dist = pred_edge_dist.view(pred.size(0), pred.size(1))
             edge_loss = pred_edge_dist.mean(dim=-1).mean()
-
+        
+        # Norm Loss    
         if norm:
-
-            # Norm Loss
-
             pred_vec1 = pred.view(-1, 3)[pred_k_3[1, 1::3]] - pred.view(-1, 3)[pred_k_3[1, 0::3]]
             pred_vec2 = pred.view(-1, 3)[pred_k_3[1, 2::3]] - pred.view(-1, 3)[pred_k_3[1, 0::3]]
 
@@ -125,7 +135,7 @@ def cd(pred, targets):
 
 def sample_minibatch_from_sphere(k, num_points):
     # torch.random.manual_seed(torch.random.default_generator.seed() // 17)
-    torch.random.manual_seed(42) 
+    # torch.random.manual_seed(42) 
 
     phi = torch.rand(k, 1, num_points) * np.pi
     theta = torch.rand(k, 1, num_points) * 2 * np.pi
@@ -261,8 +271,7 @@ class Im2PCD(ModelNet):
         # return  super(Im2PCD, self).__len__() * 12
     
     def __getitem__(self, idx):
-
-        torch.random.manual_seed(42)
+        # torch.random.manual_seed(42)
 
         if isinstance(idx, int):
             model_idx = idx // 12

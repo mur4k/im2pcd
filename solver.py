@@ -1,5 +1,11 @@
+from data_utils import *
+from logger import Logger
+from im_2_pcd_conv import Im2PcdConv
+from im_2_pcd_graph import Im2PcdGraph
+
 from random import shuffle
 import numpy as np
+import matplotlib.pyplot as plt
 import time
 import copy
 import gc
@@ -13,12 +19,6 @@ from torch.utils.tensorboard import SummaryWriter
 import tensorflow as tf
 from torch.utils.data import DataLoader
 import torchvision.transforms as TV
-
-from logger import Logger
-from data_utils import *
-from im_2_pcd_conv import Im2PcdConv
-from im_2_pcd_graph import Im2PcdGraph
-
 
 
 class Solver(object):
@@ -44,7 +44,7 @@ class Solver(object):
         self.train_loss_history = []
         self.val_loss_history = []
 
-    def train(self, model, dataloaders, start_epoch, num_epochs=10, log_nth=0):
+    def train(self, model, dataloaders, start_epoch, num_epochs=10, log_nth=0, img_to_track_progress=None):
         """
         Train a given model with the provided data.
 
@@ -64,6 +64,10 @@ class Solver(object):
         # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         device = torch.device("cpu")
         model.to(device)
+
+        if img_to_track_progress is not None:
+            ensure_dir('./model_progress/0.png')
+            img_to_track_progress = img_to_track_progress.to(device).unsqueeze(0)
 
         iter_per_epoch = {mode: len(dataloaders[mode]) for mode in ['train', 'val']}
 
@@ -110,6 +114,8 @@ class Solver(object):
                             loss.backward()
                             optim.step()
                             self.train_loss_history.append(loss.item())
+                        else:
+                            self.val_loss_history.append(loss.item())
 
                     if (i + 1) % log_nth == 0:    # print every log_nth mini-batches
                         step = (start_epoch + epoch) * iter_per_epoch[phase] + i
@@ -149,12 +155,16 @@ class Solver(object):
                 print('{} Loss: {:.4f}'.format(phase, epoch_loss))
 
                 # deep copy the model
-                if phase == 'val' and epoch_loss < best_loss:
-                    best_loss = epoch_loss
-                    best_model_wts = copy.deepcopy(model.state_dict())
                 if phase == 'val':
-                    self.val_loss_history.append(epoch_loss)
-
+                    # store best model
+                    if epoch_loss < best_loss:
+                        best_loss = epoch_loss
+                        best_model_wts = copy.deepcopy(model.state_dict())
+                    # track progress
+                    if img_to_track_progress is not None:
+                        pcd_pred = model(img_to_track_progress).squeeze(0)
+                        path_to_save_progress = './model_progress/{0:09}.png'.format(epoch+1) 
+                        custom_draw_geometry(pcd_pred, path_to_save=path_to_save_progress)
             print()
 
         time_elapsed = time.time() - since
@@ -162,22 +172,25 @@ class Solver(object):
         print('Best val loss: {:4f}'.format(best_loss))
 
         # load best model weights
-        model.load_state_dict(best_model_wts)
+        # model.load_state_dict(best_model_wts)
 
 
 def loss(pred, target, target_norms):
         cl, el, nl = losses(pred, target, target_norms, 1, 0, 0)
         return 1. * cl + 0. * el + 0. * nl
 
-
-if __name__ == 'main':
+if __name__ == '__main__':
     # construct the argument parser and parse the arguments
     ap = argparse.ArgumentParser()
-    ap.add_argument("-i", "--images", required=True,
+    ap.add_argument("-x", "--images", required=True,
         help="path to images")
-    ap.add_argument("-p", "--points", required=True,
+    ap.add_argument("-y", "--points", required=True,
+        help="path to pcds")
+    ap.add_argument("-m", "--path_to_save_model", required=True,
         help="path to pcds")
     args = vars(ap.parse_args())
+
+    print('xyu')
 
     # img_transform = TV.Compose([TV.ToTensor(), TV.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     img_transform = TV.Compose([TV.ToTensor()])
@@ -190,7 +203,7 @@ if __name__ == 'main':
                           img_transform=img_transform,
                           pts_to_save=14*14*6)
     test_im2pcd = Im2PCD(args['images'],
-                         args['points']
+                         args['points'],
                          train=False,
                          cache_pcds=True,
                          generate_norms=True,
@@ -211,6 +224,20 @@ if __name__ == 'main':
 
     shutil.rmtree('./runs', ignore_errors=True)
 
-    solver = Solver(optim_args={"lr": 3e-4, "weight_decay": 0.0}, loss_func=loss)
+    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 0.0}, loss_func=loss)
 
-    solver.train(model, dataloaders, log_nth=1, start_epoch=0, num_epochs=100)
+    img_progress, pcd_progress, pcd_norms_progress = train_im2pcd[0]
+    solver.train(model, 
+                 dataloaders, 
+                 log_nth=1, 
+                 start_epoch=0, 
+                 num_epochs=100, 
+                 img_to_track_progress=img_progress)
+
+    model.save(args['path_to_save_model'])
+
+    plt.plot(solver.train_loss_history[3:])
+    plt.plot(solver.val_loss_history[3:])
+    plt.legend(['train loss', 'validation loss'])
+    plt.title('Im2PCD')
+    plt.savefig('learning_curves.png')
