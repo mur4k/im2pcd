@@ -165,6 +165,11 @@ class Solver(object):
         model.load_state_dict(best_model_wts)
 
 
+def loss(pred, target, target_norms):
+        cl, el, nl = losses(pred, target, target_norms, 1, 0, 0)
+        return 1. * cl + 0. * el + 0. * nl
+
+
 if __name__ == 'main':
     # construct the argument parser and parse the arguments
     ap = argparse.ArgumentParser()
@@ -205,10 +210,6 @@ if __name__ == 'main':
     print('Number of parameters: {}'.format(k))
 
     shutil.rmtree('./runs', ignore_errors=True)
-
-    def loss(pred, target, target_norms):
-        cl, el, nl = losses(pred, target, target_norms, 1, 0, 0)
-        return 1. * cl + 0. * el + 0. * nl
 
     solver = Solver(optim_args={"lr": 3e-4, "weight_decay": 0.0}, loss_func=loss)
 
