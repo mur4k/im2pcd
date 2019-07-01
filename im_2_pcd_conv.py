@@ -251,8 +251,8 @@ class Im2PcdConv(nn.Module):
                                          nn.Conv2d(96, 18, kernel_size=1, groups=6, padding=0)
                                         )  # -> N x (5*3) x 14 x 14
 
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
                                   
     def forward(self, x):
         """
@@ -302,6 +302,8 @@ class Im2PcdConv(nn.Module):
         # # print(x_out.size())
 
         yv, xv = torch.meshgrid([torch.linspace(-1, 1, 14), torch.linspace(-1, 1, 14)])
+        yv = yv.to(self.device)
+        xv = xv.to(self.device)
         x_out[:, 0::3, :, :] += xv
         x_out[:, 1::3, :, :] += yv
 

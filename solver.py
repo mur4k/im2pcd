@@ -61,8 +61,8 @@ class Solver(object):
         optim = self.optim(model.parameters(), **self.optim_args)
         self._reset_histories()
 
-        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        device = torch.device("cpu")
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # device = torch.device("cpu")
         model.to(device)
 
         if img_to_track_progress is not None:
@@ -107,16 +107,13 @@ class Solver(object):
                     with torch.set_grad_enabled(phase == 'train'):
                         # Get model outputs and calculate loss
                         outputs = model(inputs)
-                        loss = self.loss_func(outputs, pcd, pcd_norms)
+                        loss = self.loss_func(outputs, pcd, pcd_norms, device)
 
                         # backward + optimize only if in training phase
                         if phase == 'train':
                             loss.backward()
                             optim.step()
-                            self.train_loss_history.append(loss.item())
-                        else:
-                            self.val_loss_history.append(loss.item())
-
+                            
                     if (i + 1) % log_nth == 0:    # print every log_nth mini-batches
                         step = (start_epoch + epoch) * iter_per_epoch[phase] + i
 
@@ -156,6 +153,7 @@ class Solver(object):
 
                 # deep copy the model
                 if phase == 'val':
+                    self.val_loss_history.append(epoch_loss)
                     # store best model
                     if epoch_loss < best_loss:
                         best_loss = epoch_loss
@@ -163,8 +161,10 @@ class Solver(object):
                     # track progress
                     if img_to_track_progress is not None:
                         pcd_pred = model(img_to_track_progress).squeeze(0)
-                        path_to_save_progress = './model_progress/{0:09}.png'.format(epoch+1) 
-                        custom_draw_geometry(pcd_pred, path_to_save=path_to_save_progress)
+                        path_to_save_progress = './model_progress/{0:09}.pcd'.format(epoch+1) 
+                        save_geometry(pcd_pred, path_to_save=path_to_save_progress)
+                else:
+                    self.train_loss_history.append(epoch_loss)
             print()
 
         time_elapsed = time.time() - since
@@ -175,9 +175,9 @@ class Solver(object):
         # model.load_state_dict(best_model_wts)
 
 
-def loss(pred, target, target_norms):
-        cl, el, nl = losses(pred, target, target_norms, 1, 0, 0)
-        return 1. * cl + 0. * el + 0. * nl
+def loss(pred, target, target_norms, device):
+    cd, el, nl = losses(pred, target, target_norms, device, 1, 0, 0)
+    return 1. * cd + 0.1 * el + 0.1 * nl
 
 if __name__ == '__main__':
     # construct the argument parser and parse the arguments
@@ -190,7 +190,6 @@ if __name__ == '__main__':
         help="path to pcds")
     args = vars(ap.parse_args())
 
-    print('xyu')
 
     # img_transform = TV.Compose([TV.ToTensor(), TV.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     img_transform = TV.Compose([TV.ToTensor()])
@@ -210,12 +209,12 @@ if __name__ == '__main__':
                          img_transform=img_transform,
                          pts_to_save=14*14*6)
 
-    train_loader = DataLoader(train_im2pcd, batch_size=1, shuffle=True)
-    test_loader = DataLoader(test_im2pcd, batch_size=1, shuffle=True)
+    train_loader = DataLoader(train_im2pcd, batch_size=16, shuffle=True)
+    test_loader = DataLoader(test_im2pcd, batch_size=16, shuffle=True)
     dataloaders = {'train': train_loader,
                    'val': test_loader}
 
-    model = Im2PcdGraph(num_points=14*14*6)
+    model = Im2PcdConv(num_points=14*14*6)
     k = 0
     for p in model.parameters():
         k += p.size().numel()
@@ -224,12 +223,12 @@ if __name__ == '__main__':
 
     shutil.rmtree('./runs', ignore_errors=True)
 
-    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 0.0}, loss_func=loss)
+    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 1e-5}, loss_func=loss)
 
-    img_progress, pcd_progress, pcd_norms_progress = train_im2pcd[0]
+    img_progress, pcd_progress, pcd_norms_progress = test_im2pcd[1]
     solver.train(model, 
                  dataloaders, 
-                 log_nth=1, 
+                 log_nth=10, 
                  start_epoch=0, 
                  num_epochs=100, 
                  img_to_track_progress=img_progress)
@@ -240,4 +239,4 @@ if __name__ == '__main__':
     plt.plot(solver.val_loss_history[3:])
     plt.legend(['train loss', 'validation loss'])
     plt.title('Im2PCD')
-    plt.savefig('learning_curves.png')
+    plt.savefig('learning_curve.png')

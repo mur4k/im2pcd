@@ -18,8 +18,14 @@ def ensure_dir(file_path):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+def save_geometry(xyz, path_to_save):
+    xyz = xyz.cpu().detach().numpy()
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(xyz)
+    o3d.io.write_point_cloud(path_to_save, pcd)
+
 def custom_draw_geometry(xyz, path_to_save=None):
-    xyz = xyz.detach().numpy()
+    xyz = xyz.cpu().detach().numpy()
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz)
     vis = o3d.visualization.Visualizer()
@@ -49,14 +55,25 @@ def edge_loss(p):
     edge_loss = edge_len.mean(dim=-1).mean()
     return edge_loss
 
-def losses(pred, target, target_norms, chamfer=True, edge=False, norm=False):
-
+def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=False):    
     # form vectors of batch indicators
-    pred_batch = torch.ones(pred.size()[:2])
-    pred_batch *= torch.arange(start=0, end=pred.size(0), dtype=torch.float32).view(-1, 1)
+    pred_batch = torch.ones(pred.size()[:2], 
+                            dtype=torch.int64,
+                            device=device)
+    pred_batch *= torch.arange(start=0, 
+                               end=pred.size(0), 
+                               dtype=torch.int64, 
+                               device=device).view(-1, 1)
+    pred_batch = pred_batch.flatten()
 
-    target_batch = torch.ones(target.size()[:2])
-    target_batch *= torch.arange(start=0, end=target.size(0), dtype=torch.float32).view(-1, 1)
+    target_batch = torch.ones(target.size()[:2], 
+                              dtype=torch.int64, 
+                              device=device)
+    target_batch *= torch.arange(start=0, 
+                                 end=target.size(0), 
+                                 dtype=torch.int64, 
+                                 device=device).view(-1, 1)
+    target_batch = target_batch.flatten()
 
     chamfer_loss = edge_loss = norm_loss = 0.
 
@@ -64,16 +81,16 @@ def losses(pred, target, target_norms, chamfer=True, edge=False, norm=False):
     if chamfer or norm:
         target_pred_nearest = gnn.knn(x=pred.view(-1, 3), 
                                       y=target.view(-1, 3), 
-                                      k=1, 
-                                      batch_x=pred_batch.flatten(), 
-                                      batch_y=target_batch.flatten())
+                                      k=torch.tensor(1, device=device), 
+                                      batch_x=pred_batch, 
+                                      batch_y=target_batch)
         target_pred_nearest = target_pred_nearest.view(2, target.size(0), target.size(1), -1)
 
         pred_target_nearest = gnn.knn(x=target.view(-1, 3), 
                                       y=pred.view(-1, 3), 
-                                      k=1, 
-                                      batch_x=target_batch.flatten(), 
-                                      batch_y=pred_batch.flatten())
+                                      k=torch.tensor(1, device=device), 
+                                      batch_x=target_batch, 
+                                      batch_y=pred_batch)
         pred_target_nearest = pred_target_nearest.view(2, pred.size(0), pred.size(1), -1)
         
         if chamfer:
@@ -91,7 +108,10 @@ def losses(pred, target, target_norms, chamfer=True, edge=False, norm=False):
             chamfer_loss = pred_target_dist_mean + target_pred_dist_mean
     
     if edge or norm:     
-        pred_k_3 = gnn.knn_graph(x=pred.view(-1, 3), k=3, batch=pred_batch.flatten(), loop=False)
+        pred_k_3 = gnn.knn_graph(x=pred.view(-1, 3), 
+                                 k=torch.tensor(1, device=device), 
+                                 batch=pred_batch, 
+                                 loop=False)
         # Edge Loss    
         if edge:
             pred_edge_dist = torch.norm(pred.view(-1, 3)[pred_k_3[0, 0::3]] -
@@ -247,7 +267,6 @@ class Im2PCD(ModelNet):
         return data
        
     def process_set(self, dataset):
-        print('xyu')
         if self.cache_pcds:
             data_list = []
             for target, category in enumerate(self.categories):
@@ -267,12 +286,12 @@ class Im2PCD(ModelNet):
             pass
     
     def __len__(self):
-        return 1
+        return self.categories_cap[self.categories.index('chair')]
         # return  super(Im2PCD, self).__len__() * 12
     
     def __getitem__(self, idx):
         # torch.random.manual_seed(42)
-
+        idx = idx + self.categories_min[self.categories.index('chair')]
         if isinstance(idx, int):
             model_idx = idx // 12
             view_idx = idx % 12
