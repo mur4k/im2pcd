@@ -66,7 +66,7 @@ class Solver(object):
         model.to(device)
 
         if img_to_track_progress is not None:
-            ensure_dir('./model_progress/0.png')
+            ensure_dir('./model_progress')
             img_to_track_progress = img_to_track_progress.to(device).unsqueeze(0)
 
         iter_per_epoch = {mode: len(dataloaders[mode]) for mode in ['train', 'val']}
@@ -130,7 +130,6 @@ class Solver(object):
                             self.writer.add_scalar(tag, value, step + 1)
 
                         if phase == 'train':
-
                             # 2. Log values and gradients of the parameters (histogram summary)
                             for tag, value in model.named_parameters():
                                 tag = tag.replace('.', '/')
@@ -172,12 +171,12 @@ class Solver(object):
         print('Best val loss: {:4f}'.format(best_loss))
 
         # load best model weights
-        # model.load_state_dict(best_model_wts)
+        model.load_state_dict(best_model_wts)
 
 
 def loss(pred, target, target_norms, device):
     cd, el, nl = losses(pred, target, target_norms, device, 1, 0, 0)
-    return 1. * cd + 0.1 * el + 0.1 * nl
+    return 1. * cd + 0.5 * el + 0.25 * nl
 
 if __name__ == '__main__':
     # construct the argument parser and parse the arguments
@@ -225,18 +224,18 @@ if __name__ == '__main__':
 
     solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 1e-5}, loss_func=loss)
 
-    img_progress, pcd_progress, pcd_norms_progress = test_im2pcd[1]
+    img_progress, pcd_progress, pcd_norms_progress = train_im2pcd[0]
     solver.train(model, 
                  dataloaders, 
-                 log_nth=10, 
+                 log_nth=1, 
                  start_epoch=0, 
                  num_epochs=100, 
                  img_to_track_progress=img_progress)
 
     model.save(args['path_to_save_model'])
 
-    plt.plot(solver.train_loss_history[3:])
-    plt.plot(solver.val_loss_history[3:])
+    plt.plot(solver.train_loss_history)
+    plt.plot(solver.val_loss_history)
     plt.legend(['train loss', 'validation loss'])
     plt.title('Im2PCD')
     plt.savefig('learning_curve.png')

@@ -58,6 +58,13 @@ class BasicBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
+    @property
+    def is_cuda(self):
+        """
+        Check if model parameters are allocated on the GPU.
+        """
+        return next(self.parameters()).is_cuda
+
 
 class EncoderBlock(nn.Module):
 
@@ -69,6 +76,13 @@ class EncoderBlock(nn.Module):
 
     def forward(self, x):
         return self.enc_block(x)
+
+    @property
+    def is_cuda(self):
+        """
+        Check if model parameters are allocated on the GPU.
+        """
+        return next(self.parameters()).is_cuda
 
 
 class DecoderBlock(nn.Module):
@@ -85,6 +99,13 @@ class DecoderBlock(nn.Module):
 
     def forward(self, x):
         return self.dec_block(x)
+
+    @property
+    def is_cuda(self):
+        """
+        Check if model parameters are allocated on the GPU.
+        """
+        return next(self.parameters()).is_cuda
 
 
 class Localization(nn.Module):
@@ -136,6 +157,12 @@ class Localization(nn.Module):
         theta = self.fc_loc(x).squeeze().view(-1, 2, 3)
         return theta
 
+    @property
+    def is_cuda(self):
+        """
+        Check if model parameters are allocated on the GPU.
+        """
+        return next(self.parameters()).is_cuda
 
 class SpatialFeaturePoolingBlock(nn.Module):
 
@@ -175,6 +202,13 @@ class SpatialFeaturePoolingBlock(nn.Module):
         x_out = self.block(x_out)
 
         return x_out
+
+    @property
+    def is_cuda(self):
+        """
+        Check if model parameters are allocated on the GPU.
+        """
+        return next(self.parameters()).is_cuda
 
 
 class Im2PcdConv(nn.Module):
@@ -250,6 +284,7 @@ class Im2PcdConv(nn.Module):
                                          nn.ReLU(True),
                                          nn.Conv2d(96, 18, kernel_size=1, groups=6, padding=0)
                                         )  # -> N x (5*3) x 14 x 14
+        self.tanh = nn.Tanh()
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # self.device = torch.device("cpu")
@@ -306,6 +341,8 @@ class Im2PcdConv(nn.Module):
         xv = xv.to(self.device)
         x_out[:, 0::3, :, :] += xv
         x_out[:, 1::3, :, :] += yv
+
+        # x_out = self.tanh(x_out)
 
         x_out = x_out.permute(0, 2, 3, 1)
         # # print(x_out.size())

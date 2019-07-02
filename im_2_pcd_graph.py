@@ -56,8 +56,8 @@ class SharedMLP(nn.Module):
                                     stride=1,
                                     padding=0))
         self.shared_mlp = nn.Sequential(*shared_mlp)
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
 
     def forward(self, x):
         x = self.shared_mlp(x)
@@ -75,9 +75,9 @@ class SPFP(nn.Module):
     
     def __init__(self, channels):
         super(SPFP, self).__init__()
-        # self.loc = nn.Sequential(SharedMLP(channels),
-        #                          nn.ReLU(True))
-        self.resid_loc = nn.Conv1d(in_channels=3,
+        self.loc = nn.Sequential(SharedMLP(channels),
+                                 nn.ReLU(True))
+        self.resid_loc = nn.Conv1d(in_channels=channels[-1]+3,
                                    out_channels=2,
                                    kernel_size=1, 
                                    stride=1, 
@@ -87,22 +87,22 @@ class SPFP(nn.Module):
         self.resid_loc.weight.data[0, 0] = 1.0
         self.resid_loc.weight.data[1, 1] = 1.0
         self.resid_loc.bias.data.zero_()
-        # self.tanh = nn.Tanh()
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
 
     def forward(self, x_loc, x_feat, x_to_pool_from):
-        # x_pool_feat = torch.cat([x_loc, x_feat], dim=1)
-        # x_pool_feat = self.loc(x_pool_feat)
-        # x_pool_feat = torch.cat([x_loc, x_pool_feat], dim=1)
-        grid_logits = self.resid_loc(x_loc)
-        grid = self.tanh(grid_logits)
+        x_pool_feat = torch.cat([x_loc, x_feat], dim=1)
+        x_pool_feat = self.loc(x_pool_feat)
+        x_pool_feat = torch.cat([x_loc, x_pool_feat], dim=1)
+        grid = self.resid_loc(x_pool_feat)
         # create grid of size N x 1 x NUM_PTS x 2
         grid = grid.unsqueeze(1).transpose(-2, -1)
         # sample from grid -> N x C x 1 X NUM_PTS
         x_pool_feat = [F.grid_sample(x_to_pool, grid, mode=MODE, padding_mode=PADDING_MODE) for x_to_pool in x_to_pool_from]
         x_pool_feat = torch.cat(x_pool_feat, dim=1)
         return x_pool_feat.squeeze(2)
+
+
     
     @property
     def is_cuda(self):
@@ -121,24 +121,32 @@ class PCDConv(nn.Module):
         self.k = k
         self.in_channels = in_channels
         self.out_channels = out_channels
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
 
     def forward(self, x):
         x_loc, x_feat = x
         x_new_feat = torch.cat([x_loc, x_feat], dim=1)
         x_new_feat = x_new_feat.transpose(-2, -1)
+        x_loc = x_loc.transpose(-2, -1)
 
         batch_size = x_new_feat.size(0)
-        x_batch = torch.ones(x_new_feat.size()[:2])
-        x_batch *= torch.arange(start=0, end=batch_size, dtype=torch.float32).view(-1, 1)
-        x_batch = x_batch.flatten().to(self.device)
+        x_batch = torch.ones(x_new_feat.size()[:2], 
+                             dtype=torch.int64,
+                             device=self.device)
+        x_batch *= torch.arange(start=0, 
+                                end=batch_size, 
+                                dtype=torch.int64, 
+                                device=self.device).view(-1, 1)
+        x_batch = x_batch.flatten()
 
         x_new_feat = x_new_feat.contiguous().view(-1, x_new_feat.size(-1))
-        edge_index = gnn.knn_graph(x=x_new_feat, k=self.k, batch=x_batch)
+        x_loc = x_loc.contiguous().view(-1, 3)
+        edge_index = gnn.knn_graph(x=x_loc, k=self.k, batch=x_batch)
         x_new_feat = self.graph_conv(x_new_feat, edge_index)
         x_new_feat = self.relu(x_new_feat)
         x_new_feat = x_new_feat.view(batch_size, -1, x_new_feat.size(1)).transpose(-2, -1)
+        x_loc = x_loc.view(batch_size, -1, 3).transpose(-2, -1)
         return (x_loc, x_new_feat)
 
     @property
@@ -164,8 +172,8 @@ class PCDRefinement(nn.Module):
                              stride=1, 
                              padding=0)
         self.tanh = nn.Tanh()
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
 
     def forward(self, x_loc, x_feat):
         x_new_loc, x_new_feat = self.pcd_conv((x_loc, x_feat))
@@ -190,15 +198,13 @@ class GraphConvDecoder(nn.Module):
         middle_channels = in_channels // 2
         self.spfp = SPFP([in_channels+3, 
                           middle_channels, 
-                          middle_channels, 
                           middle_channels])
         self.linear = SharedMLP([pool_channels, 
-                                 feat_channels, 
                                  feat_channels,
                                  feat_channels])
         self.refine = PCDRefinement(feat_channels+in_channels, out_channels, num_conv_layers=3, k=3)
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
 
     def forward(self, x_loc, x_feat, x_to_pool_from):
         x_pool_feat = self.spfp(x_loc, x_feat, x_to_pool_from)
@@ -249,14 +255,13 @@ class Im2PcdGraph(nn.Module):
                                                out_channels=128)
         self.decoder_block2 = GraphConvDecoder(in_channels=128, 
                                                pool_channels=2048+1024+512+256+64,
-                                               feat_channels=128, 
-                                               out_channels=128)
+                                               feat_channels=128,                                               out_channels=128)
         self.decoder_block1 = GraphConvDecoder(in_channels=128, 
                                                pool_channels=2048+1024+512+256+64,
                                                feat_channels=128, 
                                                out_channels=128)
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
                                   
     def forward(self, x):
         batch_size = x.size(0)
@@ -291,15 +296,25 @@ class Im2PcdGraph(nn.Module):
         x_feat = x_enc6.unsqueeze(-1).repeat(1, 1, self.num_points)
         # # print(x_loc.size(), x_feat.size())
 
-        x_loc, x_feat = self.decoder_block5(x_loc, x_feat, [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
+        x_loc, x_feat = self.decoder_block5(x_loc, 
+                                            x_feat, 
+                                            [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
         # # print(x_loc.size(), x_feat.size())
-        x_loc, x_feat = self.decoder_block4(x_loc, x_feat, [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
+        x_loc, x_feat = self.decoder_block4(x_loc, 
+                                            x_feat, 
+                                            [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
         # # print(x_loc.size(), x_feat.size())
-        x_loc, x_feat = self.decoder_block3(x_loc, x_feat, [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
+        x_loc, x_feat = self.decoder_block3(x_loc, 
+                                            x_feat, 
+                                            [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
         # # print(x_loc.size(), x_feat.size())
-        x_loc, x_feat = self.decoder_block2(x_loc, x_feat, [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
+        x_loc, x_feat = self.decoder_block2(x_loc, 
+                                            x_feat, 
+                                            [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
         # # print(x_loc.size(), x_feat.size())
-        x_loc, x_feat = self.decoder_block1(x_loc, x_feat, [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
+        x_loc, x_feat = self.decoder_block1(x_loc, 
+                                            x_feat, 
+                                            [x_enc5, x_enc4, x_enc3, x_enc2, x_enc1])
         # # print(x_loc.size(), x_feat.size())
 
         return x_loc.transpose(-2, -1)

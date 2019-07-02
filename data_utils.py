@@ -81,14 +81,14 @@ def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=Fa
     if chamfer or norm:
         target_pred_nearest = gnn.knn(x=pred.view(-1, 3), 
                                       y=target.view(-1, 3), 
-                                      k=torch.tensor(1, device=device), 
+                                      k=1, 
                                       batch_x=pred_batch, 
                                       batch_y=target_batch)
         target_pred_nearest = target_pred_nearest.view(2, target.size(0), target.size(1), -1)
 
         pred_target_nearest = gnn.knn(x=target.view(-1, 3), 
                                       y=pred.view(-1, 3), 
-                                      k=torch.tensor(1, device=device), 
+                                      k=1, 
                                       batch_x=target_batch, 
                                       batch_y=pred_batch)
         pred_target_nearest = pred_target_nearest.view(2, pred.size(0), pred.size(1), -1)
@@ -109,9 +109,8 @@ def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=Fa
     
     if edge or norm:     
         pred_k_3 = gnn.knn_graph(x=pred.view(-1, 3), 
-                                 k=torch.tensor(1, device=device), 
-                                 batch=pred_batch, 
-                                 loop=False)
+                                 k=3, 
+                                 batch=pred_batch)
         # Edge Loss    
         if edge:
             pred_edge_dist = torch.norm(pred.view(-1, 3)[pred_k_3[0, 0::3]] -
@@ -286,12 +285,13 @@ class Im2PCD(ModelNet):
             pass
     
     def __len__(self):
-        return self.categories_cap[self.categories.index('chair')]
+        # return 1
         # return  super(Im2PCD, self).__len__() * 12
+        return self.categories_cap[self.categories.index('chair')] * 12
     
     def __getitem__(self, idx):
         # torch.random.manual_seed(42)
-        idx = idx + self.categories_min[self.categories.index('chair')]
+        idx = idx + sum(self.categories_cap[:self.categories.index('chair')]) * 12
         if isinstance(idx, int):
             model_idx = idx // 12
             view_idx = idx % 12
@@ -317,5 +317,4 @@ class Im2PCD(ModelNet):
         elif isinstance(idx, slice):
             return [self[ii] for ii in range(*idx.indices(len(self)))]        
         raise IndexError(
-            'Only integers, slices (`:`) and long or byte tensors are valid '
-            'indices (got {}).'.format(type(idx).__name__))
+            'Only integers, slices (`:`) and long or byte tensors are valid indices (got {}).'.format(type(idx).__name__))
