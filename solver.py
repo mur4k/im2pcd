@@ -66,7 +66,7 @@ class Solver(object):
         model.to(device)
 
         if img_to_track_progress is not None:
-            ensure_dir('./model_progress')
+            ensure_dir('./model_progress/000000001.pcd')
             img_to_track_progress = img_to_track_progress.to(device).unsqueeze(0)
 
         iter_per_epoch = {mode: len(dataloaders[mode]) for mode in ['train', 'val']}
@@ -129,12 +129,12 @@ class Solver(object):
                         for tag, value in info.items():
                             self.writer.add_scalar(tag, value, step + 1)
 
-                        if phase == 'train':
-                            # 2. Log values and gradients of the parameters (histogram summary)
-                            for tag, value in model.named_parameters():
-                                tag = tag.replace('.', '/')
-                                self.writer.add_histogram(tag, value.data.cpu().numpy(), step + 1)
-                                self.writer.add_histogram(tag+'/grad', value.grad.data.cpu().numpy(), step+1)
+                        # if phase == 'train':
+                        #     # 2. Log values and gradients of the parameters (histogram summary)
+                        #     for tag, value in model.named_parameters():
+                        #         tag = tag.replace('.', '/')
+                        #         self.writer.add_histogram(tag, value.data.cpu().numpy(), step + 1)
+                        #         self.writer.add_histogram(tag+'/grad', value.grad.data.cpu().numpy(), step+1)
 
                         # # 3. Log training images (image summary)
                         # info = {'images': inputs[:10].cpu().numpy()}
@@ -164,6 +164,8 @@ class Solver(object):
                         save_geometry(pcd_pred, path_to_save=path_to_save_progress)
                 else:
                     self.train_loss_history.append(epoch_loss)
+                    print('saving model...')
+                    model.save('runs/model_bckp.obj'.format(epoch+1))
             print()
 
         time_elapsed = time.time() - since
@@ -213,6 +215,10 @@ if __name__ == '__main__':
     dataloaders = {'train': train_loader,
                    'val': test_loader}
 
+    print("Train size: %i" % len(train_im2pcd))
+    print("Img size: ", train_im2pcd[0][0].size())
+    print("PCD size: ", train_im2pcd[0][1].size())
+
     model = Im2PcdConv(num_points=14*14*6)
     k = 0
     for p in model.parameters():
@@ -222,14 +228,14 @@ if __name__ == '__main__':
 
     shutil.rmtree('./runs', ignore_errors=True)
 
-    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 1e-5}, loss_func=loss)
+    solver = Solver(optim_args={"lr": 3e-4, "weight_decay": 1e-5}, loss_func=loss)
 
-    img_progress, pcd_progress, pcd_norms_progress = train_im2pcd[0]
+    img_progress, pcd_progress, pcd_norms_progress = test_im2pcd[1]
     solver.train(model, 
                  dataloaders, 
-                 log_nth=1, 
+                 log_nth=10, 
                  start_epoch=0, 
-                 num_epochs=100, 
+                 num_epochs=25, 
                  img_to_track_progress=img_progress)
 
     model.save(args['path_to_save_model'])
