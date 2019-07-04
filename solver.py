@@ -28,13 +28,14 @@ class Solver(object):
                          "weight_decay": 0.0}
 
     def __init__(self, optim=torch.optim.Adam, optim_args={},
-                 loss_func=torch.nn.CrossEntropyLoss()):
+                 loss_func=torch.nn.CrossEntropyLoss(), name='runs/model_bckp'):
         optim_args_merged = self.default_adam_args.copy()
         optim_args_merged.update(optim_args)
         self.optim_args = optim_args_merged
         self.optim = optim
         self.loss_func = loss_func
         self._reset_histories()
+        self.name = name
         self.writer = SummaryWriter()
 
     def _reset_histories(self):
@@ -162,10 +163,37 @@ class Solver(object):
                         pcd_pred = model(img_to_track_progress).squeeze(0)
                         path_to_save_progress = './model_progress/{0:09}.pcd'.format(epoch+1) 
                         save_geometry(pcd_pred, path_to_save=path_to_save_progress)
+                    # build embeddings on the last epoch
+                    if epoch == num_epochs - 1:
+                        images = []
+                        embed_vectors = []
+                        cnt = 0
+                        for i, data in enumerate(dataloaders['val']):
+                            inputs, pcd, pcd_norms = data
+                            inputs = inputs.to(device)
+                            pcd = pcd.to(device)
+                            pcd_norms = pcd_norms.to(device)
+                            embeddings = model.encoder_block1(inputs)
+                            embeddings = model.encoder_block2(embeddings)
+                            embeddings = model.encoder_block3(embeddings)
+                            embeddings = model.encoder_block4(embeddings)
+                            embeddings = model.encoder_block5(embeddings)
+                            embeddings = model.avgpool(embeddings).view(embeddings.size(0), -1)
+                            embeddings = model.fcn_encoder(embeddings)
+                            images.append(inputs)
+                            embed_vectors.append(embeddings)
+                            cnt += inputs.size(0)
+                            if cnt >= 100:
+                                break
+                        images = torch.cat(images, dim=0)
+                        embed_vectors = torch.cat(embed_vectors, dim=0)
+                        print('create embeding visualization of {} samples...'.format(cnt))
+                        self.writer.add_embedding(embed_vectors, label_img=images)
+                        print('finished')
                 else:
                     self.train_loss_history.append(epoch_loss)
                     print('saving model...')
-                    model.save('runs/model_bckp.obj'.format(epoch+1))
+                    model.save(self.name)
             print()
 
         time_elapsed = time.time() - since
@@ -210,8 +238,8 @@ if __name__ == '__main__':
                          img_transform=img_transform,
                          pts_to_save=14*14*6)
 
-    train_loader = DataLoader(train_im2pcd, batch_size=16, shuffle=True)
-    test_loader = DataLoader(test_im2pcd, batch_size=16, shuffle=True)
+    train_loader = DataLoader(train_im2pcd, batch_size=8, shuffle=True)
+    test_loader = DataLoader(test_im2pcd, batch_size=8, shuffle=True)
     dataloaders = {'train': train_loader,
                    'val': test_loader}
 
@@ -228,14 +256,14 @@ if __name__ == '__main__':
 
     shutil.rmtree('./runs', ignore_errors=True)
 
-    solver = Solver(optim_args={"lr": 3e-4, "weight_decay": 1e-5}, loss_func=loss)
+    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 1e-5}, loss_func=loss, name=args['path_to_save_model'])
 
     img_progress, pcd_progress, pcd_norms_progress = test_im2pcd[1]
     solver.train(model, 
                  dataloaders, 
-                 log_nth=10, 
+                 log_nth=30, 
                  start_epoch=0, 
-                 num_epochs=25, 
+                 num_epochs=50, 
                  img_to_track_progress=img_progress)
 
     model.save(args['path_to_save_model'])

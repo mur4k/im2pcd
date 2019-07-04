@@ -201,7 +201,7 @@ class SpatialFeaturePoolingBlock(nn.Module):
 
         x_out = self.block(x_out)
 
-        return x_out
+        return x_out, grid
 
     @property
     def is_cuda(self):
@@ -250,7 +250,7 @@ class Im2PcdConv(nn.Module):
                                            num_conv_layers=3, 
                                            kernel_size=7, 
                                            stride=1, 
-                                           num_groups=1)  # -> N x (1*1280) x 7 x 7
+                                           num_groups=1)  # -> N x (1*1536) x 7 x 7
         self.decoder_block4 = DecoderBlock(in_channels=1536, 
                                            out_channels=1536, 
                                            num_conv_layers=3, 
@@ -326,11 +326,11 @@ class Im2PcdConv(nn.Module):
 
         # x_out = self.spfp_block4(x_out, x_enc4)
         # # print(x_out.size())
-        x_out = self.spfp_block3(x_out, x_enc3)
+        x_out, grid = self.spfp_block3(x_out, x_enc3)
         # # print(x_out.size())
-        x_out = self.spfp_block2(x_out, x_enc2)
+        x_out, grid = self.spfp_block2(x_out, x_enc2)
         # # print(x_out.size())
-        x_out = self.spfp_block1(x_out, x_enc1)
+        x_out, grid = self.spfp_block1(x_out, x_enc1)
         # # print(x_out.size())
         
         x_out = self.fcn_decoder(x_out)

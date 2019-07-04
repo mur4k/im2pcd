@@ -287,11 +287,11 @@ class Im2PCD(ModelNet):
     def __len__(self):
         # return 1
         # return  super(Im2PCD, self).__len__() * 12
-        return self.categories_cap[self.categories.index('chair')] * 12
+        return self.categories_cap[self.categories.index('table')] * 12
     
     def __getitem__(self, idx):
         # torch.random.manual_seed(42)
-        idx = idx + sum(self.categories_cap[:self.categories.index('chair')]) * 12
+        idx = idx + sum(self.categories_cap[:self.categories.index('table')]) * 12
         if isinstance(idx, int):
             model_idx = idx // 12
             view_idx = idx % 12
