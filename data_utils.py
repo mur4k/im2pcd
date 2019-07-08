@@ -72,7 +72,7 @@ def voxelizedIoU(pred_pcd, target_pcd, voxel_size):
                                                                    voxel_size)
 
     occupancy_indxs1 = np.array([x.grid_index for x in vxl1.voxels])
-    occupancy_indxs2 = np.array([x.grid_index for x in vxl1.voxels])
+    occupancy_indxs2 = np.array([x.grid_index for x in vxl2.voxels])
 
     max_x, max_y, max_z = np.concatenate([occupancy_indxs1, occupancy_indxs2], axis=0).max(axis=0)
 
