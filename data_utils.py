@@ -18,11 +18,13 @@ def ensure_dir(file_path):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+
 def save_geometry(xyz, path_to_save):
     xyz = xyz.cpu().detach().numpy()
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz)
     o3d.io.write_point_cloud(path_to_save, pcd)
+
 
 def custom_draw_geometry(xyz, path_to_save=None):
     xyz = xyz.cpu().detach().numpy()
@@ -37,13 +39,79 @@ def custom_draw_geometry(xyz, path_to_save=None):
         vis.run()
     vis.destroy_window()
 
+
+def batch_voxelized_iou(pred_batch, target_batch, voxel_size):
+    values = np.array([voxelizedIoU(pred_batch[i], 
+                                    target_batch[i], 
+                                    voxel_size) for i in range(pred_batch.size(0))])
+    return values.mean()
+
+
+def voxelizedIoU(pred_pcd, target_pcd, voxel_size):
+    xyz1 = pred_pcd.cpu().detach().numpy()
+    xyz2 = target_pcd.cpu().detach().numpy()
+
+    pcd1 = o3d.geometry.PointCloud()
+    pcd2 = o3d.geometry.PointCloud()
+
+    pcd1.points = o3d.utility.Vector3dVector(xyz1)
+    pcd2.points = o3d.utility.Vector3dVector(xyz2)
+
+    # align both pcds to have origin at [-1., -1., -1.]
+    transform1 = np.eye(4)
+    transform1[:-1, -1] = np.array([-1., -1., -1.]) - pcd1.get_min_bound()
+    pcd1.transform(transform1)
+    transform2 = np.eye(4)
+    transform2[:-1, -1] = np.array([-1., -1., -1.]) - pcd2.get_min_bound()
+    pcd2.transform(transform2)
+
+    # create voxels of surfaces
+    vxl1 = o3d.geometry.create_surface_voxel_grid_from_point_cloud(pcd1, 
+                                                                   voxel_size)
+    vxl2 = o3d.geometry.create_surface_voxel_grid_from_point_cloud(pcd2, 
+                                                                   voxel_size)
+
+    occupancy_indxs1 = np.asarray(vxl1.voxels)
+    occupancy_indxs2 = np.asarray(vxl2.voxels)
+
+    max_x, max_y, max_z = np.concatenate([occupancy_indxs1, occupancy_indxs2], axis=0).max(axis=0)
+
+    vxl1 = np.zeros((max_x+1, max_y+1, max_z+1), dtype=bool)
+    vxl2 = np.zeros((max_x+1, max_y+1, max_z+1), dtype=bool)
+    vxl1 &= False
+    vxl2 &= False
+    vxl1[occupancy_indxs1[:, 0], 
+         occupancy_indxs1[:, 1], 
+         occupancy_indxs1[:, 2]] = True
+    vxl2[occupancy_indxs2[:, 0], 
+         occupancy_indxs2[:, 1], 
+         occupancy_indxs2[:, 2]] = True
+
+    # compute iou
+    iou = np.sum(vxl1&vxl2) / np.sum(vxl1|vxl2)
+
+    return iou
+
+
+def cd(pred, targets):
+    '''pred: NxMx3, targets: NxKx3''' 
+    # (y_ - y)**2 = <y_, y_> - 2 * <y, y_> + <y, y>
+    dists = (pred**2).sum(-1, keepdim=True) - \
+            2 * pred @ targets.transpose(2, 1) + \
+            (targets**2).sum(-1).unsqueeze(-2)
+    # dists = torch.sqrt(dists + 1e-6)
+    return dists.min(-2)[0].mean() + dists.min(-1)[0].mean()
+
+
 def onedir_nn_distance(p1, p2, norm=True):
     p1_copy = p1.repeat(p2.size(0), 1, 1).transpose(0, 1)
     p1_res = (p1_copy - p2).norm(dim=-1).min(dim=-1).values
     return p1_res.mean() if norm else p1_res.sum()
 
+
 def chamfer_distance(p1, p2, norm=True):
     return onedir_nn_distance(p1, p2, norm) + onedir_nn_distance(p2, p1, norm)
+
 
 def edge_loss(p):
     """
@@ -55,7 +123,8 @@ def edge_loss(p):
     edge_loss = edge_len.mean(dim=-1).mean()
     return edge_loss
 
-def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=False):    
+
+def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=False, t=2/32, metrics=True):    
     # form vectors of batch indicators
     pred_batch = torch.ones(pred.size()[:2], 
                             dtype=torch.int64,
@@ -76,6 +145,7 @@ def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=Fa
     target_batch = target_batch.flatten()
 
     chamfer_loss = edge_loss = norm_loss = 0.
+    precision = recall = fscore = 0.
 
     # Chamfer Loss
     if chamfer or norm:
@@ -141,16 +211,26 @@ def losses(pred, target, target_norms, device, chamfer=True, edge=False, norm=Fa
 
             norm_loss = pred_target_norm_dissim_mean + target_pred_norm_dissim_mean
 
-    return chamfer_loss, edge_loss, norm_loss
+    if metrics:
+        # compute metrics
+        precision = (target_pred_dist <= t).type(torch.float).mean(dim=-1).mean()
+        recall = (pred_target_dist <= t).type(torch.float).mean(dim=-1).mean()
+        fscore = ((2 * precision * recall) / (precision + recall)).mean()
 
-def cd(pred, targets):
-    '''pred: NxMx3, targets: NxKx3''' 
-    # (y_ - y)**2 = <y_, y_> - 2 * <y, y_> + <y, y>
-    dists = (pred**2).sum(-1, keepdim=True) - \
-            2 * pred @ targets.transpose(2, 1) + \
-            (targets**2).sum(-1).unsqueeze(-2)
-    # dists = torch.sqrt(dists + 1e-6)
-    return dists.min(-2)[0].mean() + dists.min(-1)[0].mean()
+        # fix nan. values
+        precision[precision != precision] = 0.
+        recall[recall != recall] = 0.
+        fscore[fscore != fscore] = 0.
+
+    losses_all = {'cd': chamfer_loss,
+                  'el': edge_loss,
+                  'nl': norm_loss}
+    metrics_all = {'precision': precision,
+                   'recall': recall,
+                   'fscore': fscore}
+
+    return losses_all, metrics_all
+
 
 def sample_minibatch_from_sphere(k, num_points):
     # torch.random.manual_seed(torch.random.default_generator.seed() // 17)
@@ -162,6 +242,7 @@ def sample_minibatch_from_sphere(k, num_points):
                         torch.sin(phi) * torch.sin(theta), 
                         torch.cos(phi)], dim=1)
     return sample
+
 
 def x_rotation_matrix(x_axis_deg):
     return torch.tensor([[1, 0, 0], 
@@ -185,6 +266,7 @@ def rotation_matrix(x_axis_deg, y_axis_deg, z_axis_deg):
     return torch.matmul(z_rotation_matrix(z_axis_deg),
                         torch.matmul(y_rotation_matrix(y_axis_deg), 
                                      x_rotation_matrix(x_axis_deg)))
+
 
 class Im2PCD(ModelNet):
     def __init__(self, 
@@ -285,13 +367,13 @@ class Im2PCD(ModelNet):
             pass
     
     def __len__(self):
-        # return 1
+        return 1
         # return  super(Im2PCD, self).__len__() * 12
         return self.categories_cap[self.categories.index('table')] * 12
     
     def __getitem__(self, idx):
         # torch.random.manual_seed(42)
-        idx = idx + sum(self.categories_cap[:self.categories.index('table')]) * 12
+        # idx = idx + sum(self.categories_cap[:self.categories.index('table')]) * 12
         if isinstance(idx, int):
             model_idx = idx // 12
             view_idx = idx % 12

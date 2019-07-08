@@ -87,18 +87,22 @@ class EncoderBlock(nn.Module):
 
 class DecoderBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, num_conv_layers, kernel_size, stride, num_groups):
+    def __init__(self, in_channels, out_channels, num_conv_layers, kernel_size, stride, num_groups, concat_channels=0):
         super(DecoderBlock, self).__init__()
-        self.dec_block = nn.Sequential(nn.ConvTranspose2d(in_channels, 
-                                                          in_channels, 
-                                                          kernel_size=kernel_size, 
-                                                          groups=num_groups, 
-                                                          stride=stride), 
-                                       BasicBlock(in_channels, out_channels, num_conv_layers, num_groups)
-                                      )
+        self.dec_block = nn.ConvTranspose2d(in_channels, 
+                                            in_channels, 
+                                            kernel_size=kernel_size, 
+                                            groups=num_groups, 
+                                            stride=stride)
+        self.block = BasicBlock(in_channels+concat_channels, out_channels, num_conv_layers, num_groups)
 
-    def forward(self, x):
-        return self.dec_block(x)
+    def forward(self, x, x_to_concat=None):
+        if x_to_concat is None:
+            return self.block(self.dec_block(x))
+        else:
+            x_out = self.dec_block(x)
+            x_out = torch.cat([x_out, x_to_concat], dim=1)
+            return self.block(x_out)
 
     @property
     def is_cuda(self):
@@ -246,13 +250,13 @@ class Im2PcdConv(nn.Module):
         
         # decoder operations
         self.decoder_block5 = DecoderBlock(in_channels=1024, 
-                                           out_channels=1536, 
+                                           out_channels=6*256, 
                                            num_conv_layers=3, 
                                            kernel_size=7, 
                                            stride=1, 
                                            num_groups=1)  # -> N x (1*1536) x 7 x 7
-        self.decoder_block4 = DecoderBlock(in_channels=1536, 
-                                           out_channels=1536, 
+        self.decoder_block4 = DecoderBlock(in_channels=6*256, 
+                                           out_channels=6*256, 
                                            num_conv_layers=3, 
                                            kernel_size=2, 
                                            stride=2, 
@@ -264,30 +268,30 @@ class Im2PcdConv(nn.Module):
         #                                               num_conv_layers=3,
         #                                               num_groups=5,
         #                                               input_size=(14, 14))  # -> N x (6*256) x 14 x 14
-        self.spfp_block3 = SpatialFeaturePoolingBlock(in_channels=1536, 
-                                                      out_channels=768,
+        self.spfp_block3 = SpatialFeaturePoolingBlock(in_channels=6*256, 
+                                                      out_channels=6*128,
                                                       num_conv_layers=3,
                                                       num_groups=6,
                                                       input_size=(14, 14))  # -> N x (6*128) x 14 x 14
-        self.spfp_block2 = SpatialFeaturePoolingBlock(in_channels=768, 
-                                                      out_channels=384,
+        self.spfp_block2 = SpatialFeaturePoolingBlock(in_channels=6*128, 
+                                                      out_channels=6*64,
                                                       num_conv_layers=3,
                                                       num_groups=6,
                                                       input_size=(14, 14))  # -> N x (6*64) x 14 x 14
-        self.spfp_block1 = SpatialFeaturePoolingBlock(in_channels=384, 
-                                                      out_channels=192,
+        self.spfp_block1 = SpatialFeaturePoolingBlock(in_channels=6*64, 
+                                                      out_channels=6*32,
                                                       num_conv_layers=3,
                                                       num_groups=6,
                                                       input_size=(14, 14))  # -> N x (6*32) x 14 x 14
 
-        self.fcn_decoder = nn.Sequential(nn.Conv2d(192, 96, kernel_size=3, groups=6, padding=1),
+        self.fcn_decoder = nn.Sequential(nn.Conv2d(6*32, 96, kernel_size=3, groups=6, padding=1),
                                          nn.ReLU(True),
-                                         nn.Conv2d(96, 18, kernel_size=1, groups=6, padding=0)
-                                        )  # -> N x (5*3) x 14 x 14
+                                         nn.Conv2d(96, 6*3, kernel_size=1, groups=6, padding=0)
+                                        )  # -> N x (6*3) x 14 x 14
         self.tanh = nn.Tanh()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        # self.device = torch.device("cpu")
+        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cpu")
                                   
     def forward(self, x):
         """
