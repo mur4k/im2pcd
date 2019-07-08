@@ -71,8 +71,8 @@ def voxelizedIoU(pred_pcd, target_pcd, voxel_size):
     vxl2 = o3d.geometry.create_surface_voxel_grid_from_point_cloud(pcd2, 
                                                                    voxel_size)
 
-    occupancy_indxs1 = np.asarray(vxl1.voxels)
-    occupancy_indxs2 = np.asarray(vxl2.voxels)
+    occupancy_indxs1 = np.array([x.grid_index for x in vxl1.voxels])
+    occupancy_indxs2 = np.array([x.grid_index for x in vxl1.voxels])
 
     max_x, max_y, max_z = np.concatenate([occupancy_indxs1, occupancy_indxs2], axis=0).max(axis=0)
 
