@@ -387,7 +387,7 @@ class Im2PCD(ModelNet):
     
     def __len__(self):
         # return 1
-        return super(Im2PCD, self).__len__() * 12
+        return sum(self.categories_cap) * 12
         # return self.categories_cap[self.categories.index('table')] * 12
     
     def __getitem__(self, idx):
