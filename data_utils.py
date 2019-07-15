@@ -2,12 +2,14 @@ import open3d as o3d
 import glob
 import os
 import sys
+import cv2
 import torch
 import numpy as np
 from torch.utils.data import Dataset
 from torch_geometric.datasets import ModelNet
 import torch_geometric.transforms as TG
 import torchvision.transforms as TV
+from torchvision.utils import make_grid, save_image
 import torch_geometric.nn as gnn
 from torch_geometric.read import read_off
 from PIL import Image
@@ -24,6 +26,23 @@ def save_geometry(xyz, path_to_save):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz)
     o3d.io.write_point_cloud(path_to_save, pcd)
+
+
+def save_grid(img, grid, path_to_save, nrow=6):
+    grid = grid.permute(0, 2, 3, 1).cpu().detach().numpy()
+    img = img.permute(1, 2, 0).cpu().detach().numpy()
+    img = (img * 255).astype(np.uint8)
+    t = TV.ToTensor()
+    attn_list = []
+    for i in range(grid.shape[0]):
+        g = grid[i]
+        rect = np.array([g[0, 0], g[0, -1], g[-1, -1], g[-1, 0]])
+        rect = img.shape[:2] * (rect + 1) / 2
+        rect = rect.astype(np.int32)
+        img_vis = img.copy()
+        img_vis = cv2.polylines(img_vis, [rect], isClosed=True, color=(160, 20, 20), thickness=2)
+        attn_list.append(t(img_vis))
+    save_image(attn_list, path_to_save, nrow=nrow)
 
 
 def custom_draw_geometry(xyz, path_to_save=None):
@@ -272,7 +291,7 @@ class Im2PCD(ModelNet):
     def __init__(self, 
                  img_root, 
                  pcd_root, 
-                 name='40',
+                 name='10',
                  train=True,
                  pts_to_save=None,
                  img_transform=None, 
@@ -367,9 +386,9 @@ class Im2PCD(ModelNet):
             pass
     
     def __len__(self):
-        return 1
-        # return  super(Im2PCD, self).__len__() * 12
-        return self.categories_cap[self.categories.index('table')] * 12
+        # return 1
+        return super(Im2PCD, self).__len__() * 12
+        # return self.categories_cap[self.categories.index('table')] * 12
     
     def __getitem__(self, idx):
         # torch.random.manual_seed(42)
