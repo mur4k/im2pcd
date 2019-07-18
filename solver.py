@@ -56,8 +56,8 @@ class Solver(object):
         optim = self.optim(model.parameters(), **self.optim_args)
         self._reset_histories()
 
-        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        device = torch.device("cpu")
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # device = torch.device("cpu")
         model.to(device)
 
         if img_to_track_progress is not None:
@@ -173,40 +173,12 @@ class Solver(object):
                         pcd_pred = model(img_to_track_progress).squeeze(0)
                         path_to_save_progress = './model_progress/{0:09}.pcd'.format(epoch+1) 
                         save_geometry(pcd_pred, path_to_save=path_to_save_progress)
-                    
-                    # build embeddings on the last epoch
-                    if epoch == num_epochs - 1:
-                        images = []
-                        embed_vectors = []
-                        cnt = 0
-                        for i, data in enumerate(dataloaders['val']):
-                            inputs, pcd, pcd_norms = data
-                            inputs = inputs.to(device)
-                            pcd = pcd.to(device)
-                            pcd_norms = pcd_norms.to(device)
-                            embeddings = model.encoder_block1(inputs)
-                            embeddings = model.encoder_block2(embeddings)
-                            embeddings = model.encoder_block3(embeddings)
-                            embeddings = model.encoder_block4(embeddings)
-                            embeddings = model.encoder_block5(embeddings)
-                            embeddings = model.avgpool(embeddings).view(embeddings.size(0), -1)
-                            embeddings = model.fcn_encoder(embeddings)
-                            images.append(inputs)
-                            embed_vectors.append(embeddings)
-                            cnt += inputs.size(0)
-                            if cnt >= 100:
-                                break
-                        images = torch.cat(images, dim=0)
-                        embed_vectors = torch.cat(embed_vectors, dim=0)
-                        print('create embeding visualization of {} samples...'.format(cnt))
-                        self.writer.add_embedding(embed_vectors, label_img=images)
-                        print('finished')
                 else:
                     self.train_loss_history.append(epoch_loss)
                     self.train_iou_history.append(epoch_iou)
                     self.train_fscore_history.append(epoch_fscore)
-                    # print('saving model...')
-                    # model.save(self.name)
+                    print('saving model...')
+                    model.save(self.name)
             print()
 
         time_elapsed = time.time() - since
@@ -241,20 +213,20 @@ if __name__ == '__main__':
     train_im2pcd = Im2PCD(args['images'],
                           args['points'],
                           train=True,
-                          cache_pcds=False,
+                          cache_pcds=True,
                           generate_norms=True,
                           img_transform=img_transform,
                           pts_to_save=14*14*6)
     test_im2pcd = Im2PCD(args['images'],
                          args['points'],
                          train=False,
-                         cache_pcds=False,
+                         cache_pcds=True,
                          generate_norms=True,
                          img_transform=img_transform,
                          pts_to_save=14*14*6)
 
-    train_loader = DataLoader(train_im2pcd, batch_size=1, shuffle=True)
-    test_loader = DataLoader(test_im2pcd, batch_size=1, shuffle=True)
+    train_loader = DataLoader(train_im2pcd, batch_size=16, shuffle=True)
+    test_loader = DataLoader(test_im2pcd, batch_size=16, shuffle=True)
     dataloaders = {'train': train_loader,
                    'val': test_loader}
 
@@ -271,14 +243,14 @@ if __name__ == '__main__':
 
     shutil.rmtree('./runs', ignore_errors=True)
 
-    solver = Solver(optim_args={"lr": 1e-3, "weight_decay": 0.}, loss_func=loss, name=args['path_to_save_model'])
+    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 1e-5}, loss_func=loss, name=args['path_to_save_model'])
 
     img_progress, pcd_progress, pcd_norms_progress = test_im2pcd[1]
     solver.train(model, 
                  dataloaders, 
-                 log_nth=1, 
+                 log_nth=10, 
                  start_epoch=0, 
-                 num_epochs=200, 
+                 num_epochs=50, 
                  img_to_track_progress=img_progress)
 
     model.save(args['path_to_save_model'])
