@@ -15,7 +15,7 @@ img_transform = TV.Compose([TV.ToTensor()])
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-model = torch.load('./runs/model_bckp.obj')
+model = torch.load('model_conv.obj')
 model.to(device)
 model.eval()
 
