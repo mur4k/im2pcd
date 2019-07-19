@@ -31,12 +31,12 @@ metrics = {'Loss': [], 'F_score': [], 'IoU': []}
 classes = test_set.categories
 
 for i, c in enumerate(classes):
-	print('computing metrics for class {}'.format(c))
-	start_idx = sum(test_im2pcd.categories_cap[:i]) * 12
-	end_idx = start_idx + test_im2pcd.categories_cap[i] * 12
-	data_loader = DataLoader(test_im2pcd[start_idx:end_idx], batch_size=16)
+    print('computing metrics for class {}'.format(c))
+    start_idx = sum(test_set.categories_cap[:i]) * 12
+    end_idx = start_idx + test_set.categories_cap[i] * 12
+    data_loader = DataLoader(test_set[start_idx:end_idx], batch_size=16)
 
-	running_loss = 0.0
+    running_loss = 0.0
     running_iou = 0.0
     running_fscore = 0.0
   
@@ -51,15 +51,15 @@ for i, c in enumerate(classes):
 
         # Get model outputs and calculate loss
         outputs = model(inputs)
-        loss, fscore = loss(outputs, pcd, pcd_norms, device)
+        l, fscore = loss(outputs, pcd, pcd_norms, device)
 
         # compute iou
         iou = batch_voxelized_iou(outputs, pcd, voxel_size=2/32)
 
         # statistics
-        running_loss += loss.item() * inputs.size(0)
+        running_loss += l.item() * inputs.size(0)
         running_iou += iou * inputs.size(0)
-        running_fscore += fscore * inputs.size(0)
+        running_fscore += fscore.item() * inputs.size(0)
 
     class_loss = running_loss / len(data_loader.dataset)
     class_iou = running_iou / len(data_loader.dataset)
