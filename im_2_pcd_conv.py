@@ -290,8 +290,8 @@ class Im2PcdConv(nn.Module):
                                         )  # -> N x (6*3) x 14 x 14
         self.tanh = nn.Tanh()
 
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cpu")
                                   
     def forward(self, x):
         """
