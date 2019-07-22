@@ -311,6 +311,11 @@ class Im2PCD(ModelNet):
         self.pts_to_save = pts_to_save
         self.generate_norms = generate_norms
         self.cache_pcds = cache_pcds
+        if pts_to_save is not None and pts_to_save > 0:
+            self.pcd_transforms = [self.get_view_transform(i, pts_to_save) for i in range(12)]
+        if cache_pcds:
+             super(Im2PCD, self).__init__(pcd_root, name, train, self.pcd_transforms[0], 
+                                          pcd_pre_transform, pcd_pre_filter)
         self.categories = glob.glob(os.path.join(self.raw_dir, '*', ''))
         self.categories = sorted([x.split(os.sep)[-2] for x in self.categories])
         self.categories_cap = []
@@ -320,13 +325,7 @@ class Im2PCD(ModelNet):
             paths = glob.glob('{}/{}_*.off'.format(folder, cat))
             if self.dataset == 'test':
                 self.categories_min[i] = int(os.path.basename(min(paths))[-8:-4])
-            self.categories_cap.append(len(paths))
-        if pts_to_save is not None and pts_to_save > 0:
-            self.pcd_transforms = [self.get_view_transform(i, pts_to_save) for i in range(12)]
-        if cache_pcds:
-            super(Im2PCD, self).__init__(pcd_root, name, train, self.pcd_transforms[0], 
-                                         pcd_pre_transform, pcd_pre_filter)
-            
+            self.categories_cap.append(len(paths))            
         
     def get_view_transform(self, k, num_pts):
         R = rotation_matrix(np.pi/3., 0., np.pi/6. * k)
