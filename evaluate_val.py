@@ -15,20 +15,12 @@ img_transform = TV.Compose([TV.ToTensor()])
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-model = torch.load('./model/pointset_screen0.obj')
+model = torch.load('model_conv.obj')
 model.to(device)
 model.eval()
 
-'''test_set = Im2PCD('../../data/modelnet10_images_new_12x/',
+test_set = Im2PCD('../../data/modelnet10_images_new_12x/',
                   '../../data/ModelNet10',
-                  train=False,
-                  cache_pcds=False,
-                  generate_norms=True,
-                  img_transform=img_transform,
-                  pts_to_save=14*14*6)
-'''
-test_set = Im2PCD('./modelnet10_images/',
-                  './ModelNet10',
                   train=False,
                   cache_pcds=False,
                   generate_norms=True,

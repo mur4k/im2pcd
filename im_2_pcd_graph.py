@@ -255,7 +255,8 @@ class Im2PcdGraph(nn.Module):
                                                out_channels=128)
         self.decoder_block2 = GraphConvDecoder(in_channels=128, 
                                                pool_channels=2048+1024+512+256+64,
-                                               feat_channels=128,                                               out_channels=128)
+                                               feat_channels=128,                                               
+                                               out_channels=128)
         self.decoder_block1 = GraphConvDecoder(in_channels=128, 
                                                pool_channels=2048+1024+512+256+64,
                                                feat_channels=128, 
