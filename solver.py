@@ -1,5 +1,5 @@
 from data_utils import *
-from logger import Logger
+# from logger import Logger
 from im_2_pcd_conv import Im2PcdConv
 from im_2_pcd_graph import Im2PcdGraph
 
@@ -19,6 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 import tensorflow as tf
 from torch.utils.data import DataLoader
 import torchvision.transforms as TV
+from point_set_gen import PointSetGen
 
 
 class Solver(object):
@@ -28,7 +29,7 @@ class Solver(object):
                          "weight_decay": 0.0}
 
     def __init__(self, optim=torch.optim.Adam, optim_args={},
-                 loss_func=torch.nn.CrossEntropyLoss(), name='runs/model_bckp'):
+                 loss_func=torch.nn.CrossEntropyLoss(), name='runs/model_bckp_st'):
         optim_args_merged = self.default_adam_args.copy()
         optim_args_merged.update(optim_args)
         self.optim_args = optim_args_merged
@@ -68,6 +69,7 @@ class Solver(object):
         max_iter_per_epoch = max(iter_per_epoch.values())
 
         print('START TRAIN.')
+        model.save(self.name)
 
         # loop over the dataset multiple times
         for epoch in range(num_epochs):  
@@ -115,7 +117,7 @@ class Solver(object):
                     # compute iou
                     iou = batch_voxelized_iou(outputs, pcd, voxel_size=2/32)
 
-                    if (i + 1) % log_nth == 0:
+                    if log_nth > 0 and (i + 1) % log_nth == 0:
                         # print every log_nth mini-batches
                         step = (start_epoch + epoch) * max_iter_per_epoch + int(i / iter_per_epoch[phase] * max_iter_per_epoch)
 
@@ -167,7 +169,9 @@ class Solver(object):
                     if epoch_loss < best_loss:
                         best_loss = epoch_loss
                         best_model_wts = copy.deepcopy(model.state_dict())
-                    
+                        best_name = self.name[:-4] + '_best.obj'
+                        print('Saving best model...')
+                        model.save(best_name)
                     # track progress
                     if img_to_track_progress is not None:
                         pcd_pred = model(img_to_track_progress).squeeze(0)
@@ -204,29 +208,32 @@ if __name__ == '__main__':
         help="path to pcds")
     ap.add_argument("-m", "--path_to_save_model", required=True,
         help="path to pcds")
+    ap.add_argument('-n', '--net', help='model to use', default='ST')
+    ap.add_argument('-lr', '--lr', help='learning rate', default=1e-4, type=float)
+    ap.add_argument('-wd', '--wd', help='L2 decay', default=1e-4, type=float)
     args = vars(ap.parse_args())
-
+    print('Args =', args)
 
     # img_transform = TV.Compose([TV.ToTensor(), TV.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
     img_transform = TV.Compose([TV.ToTensor()])
-
+    points_to_sample = 14*14*6 if args['net'] is 'ST' else 14*14*6
     train_im2pcd = Im2PCD(args['images'],
                           args['points'],
                           train=True,
                           cache_pcds=True,
                           generate_norms=True,
                           img_transform=img_transform,
-                          pts_to_save=14*14*6)
+                          pts_to_save=points_to_sample)
     test_im2pcd = Im2PCD(args['images'],
                          args['points'],
                          train=False,
                          cache_pcds=True,
                          generate_norms=True,
                          img_transform=img_transform,
-                         pts_to_save=14*14*6)
+                         pts_to_save=points_to_sample)
 
-    train_loader = DataLoader(train_im2pcd, batch_size=16, shuffle=True)
-    test_loader = DataLoader(test_im2pcd, batch_size=16, shuffle=True)
+    train_loader = DataLoader(train_im2pcd, batch_size=16, shuffle=True, pin_memory=torch.cuda.is_available())
+    test_loader = DataLoader(test_im2pcd, batch_size=16, shuffle=True, pin_memory=torch.cuda.is_available())
     dataloaders = {'train': train_loader,
                    'val': test_loader}
 
@@ -234,7 +241,10 @@ if __name__ == '__main__':
     print("Img size: ", train_im2pcd[0][0].size())
     print("PCD size: ", train_im2pcd[0][1].size())
 
-    model = Im2PcdConv(num_points=14*14*6)
+    if args['net'] is 'ST':
+        model = Im2PcdConv(num_points=14*14*6)
+    else:
+        model = PointSetGen()
     k = 0
     for p in model.parameters():
         k += p.size().numel()
@@ -243,12 +253,12 @@ if __name__ == '__main__':
 
     shutil.rmtree('./runs', ignore_errors=True)
 
-    solver = Solver(optim_args={"lr": 1e-4, "weight_decay": 1e-5}, loss_func=loss, name=args['path_to_save_model'])
+    solver = Solver(optim_args={"lr": args['lr'], "weight_decay": args['wd']}, loss_func=loss, name=args['path_to_save_model'])
 
     img_progress, pcd_progress, pcd_norms_progress = test_im2pcd[1]
     solver.train(model, 
                  dataloaders, 
-                 log_nth=10, 
+                 log_nth=100, 
                  start_epoch=0, 
                  num_epochs=50, 
                  img_to_track_progress=img_progress)

@@ -58,7 +58,7 @@ class PointSetGen(nn.Module):
             nn.Linear(2048, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(True),
-            nn.Linear(1024, 240*3),
+            nn.Linear(1024, 14*14*6*3 - 28*28*3),
         )
         # Deconv branch 1
         self.net5d = DeconvBlock(512, 256, 128)  # 14 14
@@ -100,6 +100,25 @@ class PointSetGen(nn.Module):
         yconv = self.out(x)
         yconv = yconv.permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 3)
         return torch.cat([yconv, yfc], -2)
+
+    @property
+    def is_cuda(self):
+        """
+        Check if model parameters are allocated on the GPU.
+        """
+        return next(self.parameters()).is_cuda
+
+    def save(self, path):
+        """
+        Save model with its parameters to the given path. Conventionally the
+        path should end with "*.model".
+
+        Inputs:
+        - path: path string
+        """
+        print('Saving model... %s' % path)
+        torch.save(self, path)
+
 
 
 if __name__ == "__main__":
